@@ -1,68 +1,112 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
+import Image from "next/image";
+import { IDKitWidget, ISuccessResult } from "@worldcoin/idkit";
+import axios from "axios";
 import type { NextPage } from "next";
-import { useAccount } from "wagmi";
-import { BugAntIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { AwesomeButton } from "react-awesome-button";
+import "react-awesome-button/dist/styles.css";
+import { decodeAbiParameters, parseAbiParameters } from "viem";
+import { useAccount, useAccountEffect, useWriteContract } from "wagmi";
 import { Address } from "~~/components/scaffold-eth";
+import { useTransactor } from "~~/hooks/scaffold-eth";
+
+const CONTRACT_ABI = [
+  {
+    type: "function",
+    name: "verifyAndClaim",
+    inputs: [
+      { name: "signal", type: "address", internalType: "address" },
+      { name: "root", type: "uint256", internalType: "uint256" },
+      {
+        name: "nullifierHash",
+        type: "uint256",
+        internalType: "uint256",
+      },
+      { name: "proof", type: "uint256[8]", internalType: "uint256[8]" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+];
 
 const Home: NextPage = () => {
+  const [ogScore, setOgScore] = useState(0);
+  const [ogScoreAddress, setOgScoreAddress] = useState<string | undefined>("");
   const { address: connectedAddress } = useAccount();
+  const { writeContractAsync } = useWriteContract();
+  const transactor = useTransactor();
+
+  const submitTx = async (proof: ISuccessResult) => {
+    return await writeContractAsync({
+      address: "0xf606B1Dca16B4Af1EB9457e44Fea6Ae6e56fC4AF",
+      account: connectedAddress,
+      abi: CONTRACT_ABI,
+      functionName: "verifyAndClaim",
+      args: [
+        connectedAddress,
+        BigInt(proof!.merkle_root),
+        BigInt(proof!.nullifier_hash),
+        decodeAbiParameters(parseAbiParameters("uint256[8]"), proof!.proof as `0x${string}`)[0],
+      ],
+    });
+  };
+
+  async function submitUsingTransactor(proof: ISuccessResult) {
+    await transactor(() => submitTx(proof));
+  }
+
+  useAccountEffect({
+    onConnect(data) {
+      console.log("here");
+      updateOgScore(data.address);
+    },
+  });
+
+  const updateOgScore = async (newAddress: string) => {
+    setOgScoreAddress(newAddress);
+    if (!newAddress) return;
+    console.log("Running request");
+    const res = await axios.get("/api/ogScore", {
+      params: { from: newAddress },
+    });
+    setOgScore(res.data.ogScore);
+  };
 
   return (
     <>
       <div className="flex items-center flex-col flex-grow pt-10">
         <div className="px-5">
           <h1 className="text-center">
-            <span className="block text-2xl mb-2">Welcome to</span>
-            <span className="block text-4xl font-bold">Scaffold-ETH 2</span>
+            <span className="block text-2xl mb-2">Welcome To</span>
+            <span className="block text-4xl font-bold">OG Gating</span>
           </h1>
           <div className="flex justify-center items-center space-x-2 flex-col sm:flex-row">
             <p className="my-2 font-medium">Connected Address:</p>
             <Address address={connectedAddress} />
           </div>
-          <p className="text-center text-lg">
-            Get started by editing{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/nextjs/app/page.tsx
-            </code>
+          <p className="flex justify-center items-center">
+            {!!ogScoreAddress && <>OG Score: {parseFloat(ogScore.toString()).toFixed(2)}</>}
           </p>
-          <p className="text-center text-lg">
-            Edit your smart contract{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              YourContract.sol
-            </code>{" "}
-            in{" "}
-            <code className="italic bg-base-300 text-base font-bold max-w-full break-words break-all inline-block">
-              packages/hardhat/contracts
-            </code>
+          <p className="flex justify-center items-center">
+            {!!connectedAddress && (
+              <IDKitWidget
+                app_id="app_staging_3d02714c53dfc77067b01db15846f729" // must be an app set to on-chain in Developer Portal
+                action="claim-nft"
+                signal={connectedAddress} // proof will only verify if the signal is unchanged, this prevents tampering
+                onSuccess={submitUsingTransactor} // use onSuccess to call your smart contract
+              >
+                {({ open }) => (
+                  <AwesomeButton type="primary" onPress={open}>
+                    Verify With World ID
+                  </AwesomeButton>
+                )}
+              </IDKitWidget>
+            )}
           </p>
         </div>
-
-        <div className="flex-grow bg-base-300 w-full mt-16 px-8 py-12">
-          <div className="flex justify-center items-center gap-12 flex-col sm:flex-row">
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <BugAntIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Tinker with your smart contract using the{" "}
-                <Link href="/debug" passHref className="link">
-                  Debug Contracts
-                </Link>{" "}
-                tab.
-              </p>
-            </div>
-            <div className="flex flex-col bg-base-100 px-10 py-10 text-center items-center max-w-xs rounded-3xl">
-              <MagnifyingGlassIcon className="h-8 w-8 fill-secondary" />
-              <p>
-                Explore your local transactions with the{" "}
-                <Link href="/blockexplorer" passHref className="link">
-                  Block Explorer
-                </Link>{" "}
-                tab.
-              </p>
-            </div>
-          </div>
-        </div>
+        <Image src="/theOg.png" width={500} height={500} alt="Picture of the author" />
       </div>
     </>
   );
